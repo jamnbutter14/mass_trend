@@ -64,7 +64,7 @@ summary{cursor:pointer;font-weight:700}
 
 <!-- PAGE 1 -->
 <section id="pageInput">
-  <h1>Trend Content Generator</h1>
+  <h1>Trend content generator</h1>
   <p class="sub">Fill in the event details, press Go, and get 100 fresh compliments per round.</p>
   <div class="card">
     <label for="keywords">Keywords <span class="hint">(separated by commas)</span></label>
@@ -86,8 +86,12 @@ summary{cursor:pointer;font-weight:700}
           <input id="limit" type="number" min="40" max="500" value="190">
         </div>
         <div>
-          <label for="incTags">Tagline &amp; hashtags</label>
-          <label style="font-weight:400;margin:6px 0 0;display:flex;gap:8px;align-items:center"><input id="incTags" type="checkbox" style="width:auto"> Put them inside each comment</label>
+          <label for="tagMode">Tagline &amp; hashtags</label>
+          <select id="tagMode" style="width:100%;font:inherit;color:var(--ink);background:var(--bg);border:2px solid var(--line);border-radius:10px;padding:11px 13px">
+            <option value="none">Don't add to comments</option>
+            <option value="append">Add at the end (not counted in limit)</option>
+            <option value="inside">Inside the comment (counted in limit)</option>
+          </select>
         </div>
       </div>
       <div class="row">
@@ -133,7 +137,7 @@ const store = {
 ['apikey','idol','keywords','event','tags','limit'].forEach(id=>{
   const v = store.get('tcg_'+id); if(v) $(id).value = v;
 });
-$('incTags').checked = store.get('tcg_incTags')==='1';
+if(store.get('tcg_tagMode')) $('tagMode').value = store.get('tcg_tagMode');
 
 const state = { items:[], batches:[], seen:new Set(), busy:false, params:null };
 
@@ -165,7 +169,7 @@ async function callApi(p, count, avoid, angle){
     method:'POST',
     headers:{'Content-Type':'application/json','x-access-code':p.code},
     body:JSON.stringify({
-      keywords:p.keywords, event:p.event, tags:p.tags, incTags:p.incTags,
+      keywords:p.keywords, event:p.event, tags:p.tags, incTags:p.tagMode==='inside',
       limit:p.limit, idol:p.idol, count, avoid, angle
     })
   });
@@ -209,7 +213,7 @@ async function generateRound(){
       const key = norm(t), sg = sig(t);
       if(state.seen.has(key) || state.seen.has('s:'+sg)) continue;
       state.seen.add(key); state.seen.add('s:'+sg);
-      accepted.push(t);
+      accepted.push(p.tagMode==='append' && p.tags ? t+' '+p.tags : t);
       if(accepted.length>=BATCH_TOTAL) break;
     }
     if(!fresh.length) break;           // nothing came back, stop retrying
@@ -262,7 +266,7 @@ $('goBtn').onclick = async ()=>{
     keywords:$('keywords').value.split(',').map(s=>s.trim()).filter(Boolean),
     event:$('event').value.trim(),
     tags:$('tags').value.trim(),
-    incTags:$('incTags').checked,
+    tagMode:$('tagMode').value,
     limit:Math.max(40,parseInt($('limit').value,10)||190),
     code:$('apikey').value.trim(),
     idol:$('idol').value.trim()||'James'
@@ -272,12 +276,12 @@ $('goBtn').onclick = async ()=>{
   if(!p.event) missing.push('event name');
   if(missing.length){ e1.textContent='Please fill in: '+missing.join(', ')+'.'; e1.classList.remove('hidden'); return; }
   ['apikey','idol','keywords','event','tags','limit'].forEach(id=>store.set('tcg_'+id,$(id).value));
-  store.set('tcg_incTags',$('incTags').checked?'1':'0');
+  store.set('tcg_tagMode',$('tagMode').value);
 
   // reset session
   state.params=p; state.items=[]; state.batches=[]; state.seen=new Set();
   $('list').innerHTML=''; $('total').textContent='0';
-  $('eventLabel').textContent='for '+p.event; $('tagLabel').textContent=(p.tags||'')+' · max '+p.limit+' characters';
+  $('eventLabel').textContent='for '+p.event; $('tagLabel').textContent=(p.tags||'')+' · max '+p.limit+' characters'+(p.tagMode==='append'&&p.tags?' + hashtags':'');
   $('pageInput').classList.add('hidden'); $('pageResults').classList.remove('hidden');
   window.scrollTo(0,0);
   await generateRound();
