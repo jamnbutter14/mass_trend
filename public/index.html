@@ -245,7 +245,7 @@ function renderBatch(items, n){
   h.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
-function fullText(){ return state.items.join('\n\n\n'); }   // 2 extra blank lines between each
+function fullText(){ return state.items.join('\n\n'); }   // 1 extra blank line between each
 
 async function copyText(txt){
   try{ await navigator.clipboard.writeText(txt); return true; }
