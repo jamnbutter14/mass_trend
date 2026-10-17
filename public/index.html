@@ -49,7 +49,8 @@ summary{cursor:pointer;font-weight:700}
 .stat{font-weight:700}
 .stat small{font-weight:400;color:var(--muted)}
 .meta{color:var(--muted);font-size:.9rem;margin-top:2px}
-.batchhead{margin:26px 0 10px;font-weight:700;color:var(--accent2)}
+.batchhead{margin:26px 0 10px;font-weight:700;color:var(--accent2);display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mini{padding:6px 12px;font-size:.9rem}
 .item{background:var(--surface);border:2px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px;white-space:pre-wrap;word-break:break-word}
 .item.new{background:var(--new)}
 .status{margin-top:12px;font-weight:500}
@@ -113,7 +114,8 @@ summary{cursor:pointer;font-weight:700}
     <div class="stat"><span id="total">0</span> compliments <small id="eventLabel"></small></div>
     <div class="meta" id="tagLabel"></div>
     <div class="actions">
-      <button id="copyBtn" class="primary">Copy</button>
+      <button id="copyLastBtn" class="primary">Copy latest round</button>
+      <button id="copyBtn">Copy all</button>
       <button id="contBtn">Continue</button>
       <button id="docsBtn">Export to Google Docs</button>
       <button id="backBtn">New event</button>
@@ -152,7 +154,7 @@ function sig(s){ return norm(s).split(' ').slice(0,12).join(' '); }
 function setStatus(msg, ok){ const s=$('status'); s.textContent=msg||''; s.className='status'+(ok?' ok':''); }
 function setBusy(b){
   state.busy=b;
-  ['goBtn','copyBtn','contBtn','docsBtn','backBtn'].forEach(id=>$(id).disabled=b);
+  ['goBtn','copyBtn','copyLastBtn','contBtn','docsBtn','backBtn'].forEach(id=>$(id).disabled=b);
   $('progWrap').classList.toggle('hidden',!b);
 }
 
@@ -241,7 +243,11 @@ function renderBatch(items, n){
   const list = $('list');
   list.querySelectorAll('.item.new').forEach(el=>el.classList.remove('new'));
   const h = document.createElement('div');
-  h.className='batchhead'; h.textContent=`Round ${n} · ${items.length} compliments`;
+  h.className='batchhead';
+  const ht=document.createElement('span'); ht.textContent=`Round ${n} · ${items.length} compliments`;
+  const hb=document.createElement('button'); hb.type='button'; hb.className='mini'; hb.textContent='Copy this round';
+  hb.onclick=async()=>{ const ok=await copyText(joinText(items)); setStatus(ok?`Copied round ${n} (${items.length} compliments).`:'Copy failed. Select the text manually.', ok); };
+  h.append(ht,hb);
   list.appendChild(h);
   items.forEach(t=>{
     const d=document.createElement('div'); d.className='item new'; d.textContent=t; list.appendChild(d);
@@ -249,7 +255,8 @@ function renderBatch(items, n){
   h.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
-function fullText(){ return state.items.join('\n\n'); }   // 1 extra blank line between each
+const joinText = arr => arr.join('\n\n');   // 1 extra blank line between each
+function fullText(){ return joinText(state.items); }
 
 async function copyText(txt){
   try{ await navigator.clipboard.writeText(txt); return true; }
@@ -292,7 +299,14 @@ $('contBtn').onclick = ()=>generateRound();
 $('copyBtn').onclick = async ()=>{
   if(!state.items.length) return setStatus('Nothing to copy yet.');
   const ok = await copyText(fullText());
-  setStatus(ok?`Copied ${state.items.length} compliments.`:'Copy failed. Select the text manually.', ok);
+  setStatus(ok?`Copied all ${state.items.length} compliments from ${state.batches.length} round(s).`:'Copy failed. Select the text manually.', ok);
+};
+
+$('copyLastBtn').onclick = async ()=>{
+  const last = state.batches[state.batches.length-1];
+  if(!last) return setStatus('Nothing to copy yet.');
+  const ok = await copyText(joinText(last));
+  setStatus(ok?`Copied round ${state.batches.length} (${last.length} compliments).`:'Copy failed. Select the text manually.', ok);
 };
 
 $('docsBtn').onclick = async ()=>{
