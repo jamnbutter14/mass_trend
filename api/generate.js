@@ -50,8 +50,7 @@ const TONES = {
   happy: ['Happy & Joyful', 'cheerful, glowing, overflowing with joy'],
   awed: ['Awed & Amazement', 'astonished, in awe, amazed by how special he is'],
   funny: ['Funny & Witty', 'light humour and clever wit, still clearly a compliment'],
-  relaxed: ['Relaxed & Natural', 'casual, conversational, like a real fan typing naturally'],
-  whimsical: ['Whimsical & Playful', 'imaginative, cute and playful, with a touch of fantasy']
+  relaxed: ['Relaxed & Natural', 'casual, conversational, like a real fan typing naturally']
 };
 
 function buildPrompt(b) {
@@ -65,16 +64,17 @@ function buildPrompt(b) {
   const avoid = (Array.isArray(b.avoid) ? b.avoid : []).slice(0, 200).map(a => str(a, 80));
   const incTags = !!b.incTags;
   const directPct = num(b.directPct, 0, 100, 30);
-  const toneKey = Object.prototype.hasOwnProperty.call(TONES, b.tone) ? b.tone : 'mixed';
+  const picked = [...new Set((Array.isArray(b.tones) ? b.tones : []).filter(k => Object.prototype.hasOwnProperty.call(TONES, k)))];
+  const chosen = picked.length ? picked : Object.keys(TONES);
   if (!keywords.length) return null;
 
   const kwText = keywords.map(k => `"${k}"`).join(', ');
   let t = `Create ${count} compliments for ${idol}, each under ${limit} characters (counting spaces, emojis and punctuation), all have these ${keywords.length} keywords [${kwText}]${event ? ` at [${event}]` : ''}. Don't count/add a No. at the beginning.`;
   const direct = Math.round(count * directPct / 100);
   const third = count - direct;
-  const toneLine = toneKey === 'mixed'
-    ? `\n- Mood: mix the moods across the set, spreading them evenly so neighbouring compliments differ: ${Object.values(TONES).map(x => x[0] + ' (' + x[1] + ')').join('; ')}.\n- Extra flavour for this set: ${angle}.`
-    : `\n- Mood: every compliment must have a ${TONES[toneKey][0]} mood (${TONES[toneKey][1]}). Keep this mood throughout, while still varying wording and structure.`;
+  const toneLine = chosen.length === 1
+    ? `\n- Mood: every compliment must have a ${TONES[chosen[0]][0]} mood (${TONES[chosen[0]][1]}). Keep this mood throughout, while still varying wording and structure.`
+    : `\n- Mood: mix only these moods across the set, spreading them evenly so neighbouring compliments differ: ${chosen.map(k => TONES[k][0] + ' (' + TONES[k][1] + ')').join('; ')}.\n- Extra flavour for this set: ${angle}.`;
   t += `\n\nRules:\n- HARD LIMIT: every compliment must be ${limit} characters or fewer in total. Keep them short and punchy.\n- Every compliment must contain ALL of the keywords above, worded naturally.\n- Write each as a standalone fan comment.\n- Make every compliment clearly different in structure, opening, tone and detail. Never start two with the same words. Vary what is praised (for example talent, charm, personality, kindness, hard work, humour, looks), as long as every keyword is still included.${toneLine}`;
   t += `\n- Point of view: exactly ${third} of the ${count} compliments talk ABOUT ${idol} in the third person (use his name or he/him/his, and never use "you" to address him). The other ${direct} speak DIRECTLY to ${idol} (use "you/your"). Shuffle the order so the two kinds are mixed randomly.`;
   if (event) t += `\n- Only mention the event as given. Do not invent extra details about it (venue, outfits, songs, schedule, what happened).`;
