@@ -45,6 +45,15 @@ const EVENT_THEMES = [
 ];
 const pick = (arr, n) => [...arr].sort(() => Math.random() - 0.5).slice(0, n);
 
+const TONES = {
+  optimistic: ['Optimistic & Hopeful', 'bright, encouraging, full of faith in a beautiful future'],
+  happy: ['Happy & Joyful', 'cheerful, glowing, overflowing with joy'],
+  awed: ['Awed & Amazement', 'astonished, in awe, amazed by how special he is'],
+  funny: ['Funny & Witty', 'light humour and clever wit, still clearly a compliment'],
+  relaxed: ['Relaxed & Natural', 'casual, conversational, like a real fan typing naturally'],
+  whimsical: ['Whimsical & Playful', 'imaginative, cute and playful, with a touch of fantasy']
+};
+
 function buildPrompt(b) {
   const keywords = (Array.isArray(b.keywords) ? b.keywords : []).slice(0, 10).map(k => str(k, 60).trim()).filter(Boolean);
   const event = str(b.event, 120).trim();
@@ -56,13 +65,17 @@ function buildPrompt(b) {
   const avoid = (Array.isArray(b.avoid) ? b.avoid : []).slice(0, 200).map(a => str(a, 80));
   const incTags = !!b.incTags;
   const directPct = num(b.directPct, 0, 100, 30);
+  const toneKey = Object.prototype.hasOwnProperty.call(TONES, b.tone) ? b.tone : 'mixed';
   if (!keywords.length) return null;
 
   const kwText = keywords.map(k => `"${k}"`).join(', ');
   let t = `Create ${count} compliments for ${idol}, each under ${limit} characters (counting spaces, emojis and punctuation), all have these ${keywords.length} keywords [${kwText}]${event ? ` at [${event}]` : ''}. Don't count/add a No. at the beginning.`;
   const direct = Math.round(count * directPct / 100);
   const third = count - direct;
-  t += `\n\nRules:\n- HARD LIMIT: every compliment must be ${limit} characters or fewer in total. Keep them short and punchy.\n- Every compliment must contain ALL of the keywords above, worded naturally.\n- Write each as a standalone fan comment.\n- Make every compliment clearly different in structure, opening, tone and detail. Never start two with the same words. Vary what is praised (for example talent, charm, personality, kindness, hard work, humour, looks), as long as every keyword is still included.\n- Suggested flavour for this set: ${angle}.`;
+  const toneLine = toneKey === 'mixed'
+    ? `\n- Mood: mix the moods across the set, spreading them evenly so neighbouring compliments differ: ${Object.values(TONES).map(x => x[0] + ' (' + x[1] + ')').join('; ')}.\n- Extra flavour for this set: ${angle}.`
+    : `\n- Mood: every compliment must have a ${TONES[toneKey][0]} mood (${TONES[toneKey][1]}). Keep this mood throughout, while still varying wording and structure.`;
+  t += `\n\nRules:\n- HARD LIMIT: every compliment must be ${limit} characters or fewer in total. Keep them short and punchy.\n- Every compliment must contain ALL of the keywords above, worded naturally.\n- Write each as a standalone fan comment.\n- Make every compliment clearly different in structure, opening, tone and detail. Never start two with the same words. Vary what is praised (for example talent, charm, personality, kindness, hard work, humour, looks), as long as every keyword is still included.${toneLine}`;
   t += `\n- Point of view: exactly ${third} of the ${count} compliments talk ABOUT ${idol} in the third person (use his name or he/him/his, and never use "you" to address him). The other ${direct} speak DIRECTLY to ${idol} (use "you/your"). Shuffle the order so the two kinds are mixed randomly.`;
   if (event) t += `\n- Only mention the event as given. Do not invent extra details about it (venue, outfits, songs, schedule, what happened).`;
   else t += `\n- There is NO event, so these are general compliments. Do NOT mention or imply any event, stage, concert, performance, fan meeting, show, "tonight" or "today". Do not invent places, outfits or moments. Only use details that the keywords themselves suggest.`;
