@@ -33,6 +33,18 @@ function rateLimited(ip, perHour) {
 const str = (v, max) => String(v ?? '').slice(0, max);
 const num = (v, min, max, d) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : d; };
 
+const GENERAL_THEMES = [
+  'their charm and charisma', 'their warm personality and kindness', 'their talent and skill',
+  'their hard work and dedication', 'their beautiful smile and looks', 'their voice and sound',
+  'their humour and fun side', 'how they inspire and motivate fans', 'their confidence and presence',
+  'how much fans love and support them', 'their growth over the years', 'how they make fans feel happy and understood'
+];
+const EVENT_THEMES = [
+  'the energy and excitement of this event', 'their performance and stage presence at this event',
+  'how unforgettable this moment is for fans'
+];
+const pick = (arr, n) => [...arr].sort(() => Math.random() - 0.5).slice(0, n);
+
 function buildPrompt(b) {
   const keywords = (Array.isArray(b.keywords) ? b.keywords : []).slice(0, 10).map(k => str(k, 60).trim()).filter(Boolean);
   const event = str(b.event, 120).trim();
@@ -43,11 +55,17 @@ function buildPrompt(b) {
   const angle = str(b.angle, 120);
   const avoid = (Array.isArray(b.avoid) ? b.avoid : []).slice(0, 200).map(a => str(a, 80));
   const incTags = !!b.incTags;
+  const directPct = num(b.directPct, 0, 100, 30);
   if (!keywords.length) return null;
 
   const kwText = keywords.map(k => `"${k}"`).join(', ');
   let t = `Create ${count} compliments for ${idol}, each under ${limit} characters (counting spaces, emojis and punctuation), all have these ${keywords.length} keywords [${kwText}]${event ? ` at [${event}]` : ''}. Don't count/add a No. at the beginning.`;
-  t += `\n\nRules:\n- HARD LIMIT: every compliment must be ${limit} characters or fewer in total. Keep them short and punchy.\n- Every compliment must contain ALL of the keywords above, worded naturally.\n- Write each as a standalone fan comment.\n- Make every compliment clearly different in structure, opening, tone and detail. Never start two with the same words.\n- Suggested flavour for this set: ${angle}.`;
+  const direct = Math.round(count * directPct / 100);
+  const third = count - direct;
+  t += `\n\nRules:\n- HARD LIMIT: every compliment must be ${limit} characters or fewer in total. Keep them short and punchy.\n- Every compliment must contain ALL of the keywords above, worded naturally.\n- Write each as a standalone fan comment.\n- Make every compliment clearly different in structure, opening, tone and detail. Never start two with the same words. Vary what is praised (for example talent, charm, personality, kindness, hard work, humour, looks), as long as every keyword is still included.\n- Suggested flavour for this set: ${angle}.`;
+  t += `\n- Point of view: exactly ${third} of the ${count} compliments talk ABOUT ${idol} in the third person (use his name or he/him/his, and never use "you" to address him). The other ${direct} speak DIRECTLY to ${idol} (use "you/your"). Shuffle the order so the two kinds are mixed randomly.`;
+  if (event) t += `\n- Only mention the event as given. Do not invent extra details about it (venue, outfits, songs, schedule, what happened).`;
+  else t += `\n- There is NO event, so these are general compliments. Do NOT mention or imply any event, stage, concert, performance, fan meeting, show, "tonight" or "today". Do not invent places, outfits or moments. Only use details that the keywords themselves suggest.`;
   if (tags && incTags) t += `\n- Today's tagline and hashtags is [${tags}]. Include them in every compliment, and count them toward the ${limit}-character limit.`;
   else if (tags) t += `\n- Today's tagline is [${tags}] for context only. Do NOT include any hashtags or the tagline text in the compliments.`;
   else t += `\n- Do NOT include any hashtags.`;
