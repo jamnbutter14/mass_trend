@@ -45,6 +45,9 @@ summary{cursor:pointer;font-weight:700}
 .hidden{display:none!important}
 /* results */
 .bar{position:sticky;top:0;z-index:5;background:var(--bg);padding:14px 0;margin-bottom:6px;border-bottom:2px solid var(--line)}
+.tune{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin-top:10px}
+.tune label{margin:0;font-weight:700;font-size:.9rem}
+.tune input{padding:7px 10px}
 .bar .actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
 .stat{font-weight:700}
 .stat small{font-weight:400;color:var(--muted)}
@@ -66,16 +69,35 @@ summary{cursor:pointer;font-weight:700}
 <!-- PAGE 1 -->
 <section id="pageInput">
   <h1>Trend content generator</h1>
-  <p class="sub">Fill in the event details, press Go, and get 100 fresh compliments per round.</p>
+  <p class="sub">Fill in the event details, press Go, and get a fresh batch of compliments each round.</p>
   <div class="card">
     <label for="keywords">Keywords <span class="hint">(separated by commas)</span></label>
     <input id="keywords" type="text" placeholder="e.g. stage presence, vocals, visuals">
 
-    <label for="event">Event name</label>
-    <input id="event" type="text" placeholder="e.g. Fan Meeting 2026">
+    <label for="event">Event name <span class="hint">(optional)</span></label>
+    <input id="event" type="text" placeholder="Leave empty for general compliments">
 
     <label for="tags">Tagline &amp; hashtags <span class="hint">(optional)</span></label>
     <textarea id="tags" placeholder="e.g. Forever with James #JamesDay #ForeverJames"></textarea>
+
+    <div class="row">
+      <div>
+        <label for="perRound">Comments per round</label>
+        <input id="perRound" type="number" min="1" max="500" value="100">
+      </div>
+      <div>
+        <label for="model">Gemini model</label>
+        <input id="model" type="text" list="modelList" value="gemini-3.8-flash" autocomplete="off">
+      </div>
+    </div>
+    <datalist id="modelList">
+      <option value="gemini-3.8-flash">
+      <option value="gemini-3.7-flash">
+      <option value="gemini-3.6-flash">
+      <option value="gemini-3.5-flash">
+      <option value="gemini-3.5-flash-lite">
+      <option value="gemini-3.1-flash-lite">
+    </datalist>
 
     <details id="settings">
       <summary>Settings</summary>
@@ -113,6 +135,12 @@ summary{cursor:pointer;font-weight:700}
   <div class="bar">
     <div class="stat"><span id="total">0</span> compliments <small id="eventLabel"></small></div>
     <div class="meta" id="tagLabel"></div>
+    <div class="tune">
+      <label for="perRoundBar">Next round</label>
+      <input id="perRoundBar" type="number" min="1" max="500" value="100" style="width:90px">
+      <label for="modelBar">Model</label>
+      <input id="modelBar" type="text" list="modelList" autocomplete="off" style="width:210px">
+    </div>
     <div class="actions">
       <button id="copyLastBtn" class="primary">Copy latest round</button>
       <button id="copyBtn">Copy all</button>
@@ -136,16 +164,15 @@ const store = {
 };
 
 // restore saved fields
-['apikey','idol','keywords','event','tags','limit'].forEach(id=>{
+['apikey','idol','keywords','event','tags','limit','perRound','model'].forEach(id=>{
   const v = store.get('tcg_'+id); if(v) $(id).value = v;
 });
 if(store.get('tcg_tagMode')) $('tagMode').value = store.get('tcg_tagMode');
 
 const state = { items:[], batches:[], seen:new Set(), busy:false, params:null };
 
-const BATCH_TOTAL = 100;
-const CHUNKS = 5;                 // 5 parallel calls x 20 = 100 per round
-const PER_CHUNK = BATCH_TOTAL / CHUNKS;
+const REQ_SIZE = 20;              // comments requested per API call
+const WAVE = 5;                   // API calls run at the same time
 
 const norm = s => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu,'').replace(/\s+/g,' ').trim();
 const wc = s => s.trim().split(/\s+/).filter(Boolean).length;
@@ -154,7 +181,7 @@ function sig(s){ return norm(s).split(' ').slice(0,12).join(' '); }
 function setStatus(msg, ok){ const s=$('status'); s.textContent=msg||''; s.className='status'+(ok?' ok':''); }
 function setBusy(b){
   state.busy=b;
-  ['goBtn','copyBtn','copyLastBtn','contBtn','docsBtn','backBtn'].forEach(id=>$(id).disabled=b);
+  ['goBtn','copyBtn','copyLastBtn','contBtn','docsBtn','backBtn','perRoundBar','modelBar'].forEach(id=>$(id).disabled=b);
   $('progWrap').classList.toggle('hidden',!b);
 }
 
@@ -171,7 +198,7 @@ async function callApi(p, count, avoid, angle){
     method:'POST',
     headers:{'Content-Type':'application/json','x-access-code':p.code},
     body:JSON.stringify({
-      keywords:p.keywords, event:p.event, tags:p.tags, incTags:p.tagMode==='inside',
+      keywords:p.keywords, event:p.event, tags:p.tags, incTags:p.tagMode==='inside', model:p.model,
       limit:p.limit, idol:p.idol, count, avoid, angle
     })
   });
@@ -193,21 +220,31 @@ async function generateRound(){
   let errors = [], tooLong = 0, passes = 0;
   const MAX_PASSES = 4;
 
-  while(accepted.length < BATCH_TOTAL && passes < MAX_PASSES){
+  const total = p.perRound;
+  let limitHit = false;
+
+  while(accepted.length < total && passes < MAX_PASSES && !limitHit){
     passes++;
-    const need = BATCH_TOTAL - accepted.length;
-    const chunks = need > 30 ? CHUNKS : Math.max(1, Math.ceil(need/20));
-    const per = Math.ceil(need/chunks) + (passes===1 ? 6 : 12);   // ask for extras to cover rejects
+    const need = total - accepted.length;
+    const extra = passes===1 ? 0.25 : 0.5;                 // ask for extras to cover rejects
+    const sizes = [];
+    for(let r=need; r>0; r-=REQ_SIZE) sizes.push(Math.min(REQ_SIZE, r));
     const angleStart = Math.floor(Math.random()*ANGLES.length);
     const localAvoid = avoid.concat(accepted.map(t=>t.split(/\s+/).slice(0,7).join(' ')));
     let fresh = [], done = 0;
 
-    await Promise.all(Array.from({length:chunks},(_,i)=>(async()=>{
-      const angle = ANGLES[(angleStart+i*2)%ANGLES.length]+' / '+ANGLES[(angleStart+i*2+1)%ANGLES.length];
-      try{ fresh.push(...await callApi(p, per, localAvoid, angle)); }
-      catch(e){ errors.push(e.message); }
-      done++; $('prog').style.width = (4 + ((passes-1)+done/chunks)/MAX_PASSES*96)+'%';
-    })()));
+    for(let w=0; w<sizes.length && !limitHit; w+=WAVE){
+      await Promise.all(sizes.slice(w,w+WAVE).map(async (sz,k)=>{
+        const i = w+k;
+        const angle = ANGLES[(angleStart+i*2)%ANGLES.length]+' / '+ANGLES[(angleStart+i*2+1)%ANGLES.length];
+        try{ fresh.push(...await callApi(p, sz+Math.ceil(sz*extra), localAvoid, angle)); }
+        catch(e){
+          errors.push(e.message);
+          if(/quota|rate|limit|exhaust|too many|429/i.test(e.message)) limitHit = true;
+        }
+        done++; $('prog').style.width = (4 + ((passes-1)+done/sizes.length)/MAX_PASSES*96)+'%';
+      }));
+    }
 
     for(const raw of fresh){
       const t = raw.trim();
@@ -216,10 +253,10 @@ async function generateRound(){
       if(state.seen.has(key) || state.seen.has('s:'+sg)) continue;
       state.seen.add(key); state.seen.add('s:'+sg);
       accepted.push(p.tagMode==='append' && p.tags ? t+' '+p.tags : t);
-      if(accepted.length>=BATCH_TOTAL) break;
+      if(accepted.length>=total) break;
     }
     if(!fresh.length) break;           // nothing came back, stop retrying
-    if(accepted.length < BATCH_TOTAL) setStatus(`Generating… ${accepted.length}/${BATCH_TOTAL}`);
+    if(accepted.length < total && !limitHit) setStatus(`Generating… ${accepted.length}/${total}`);
   }
 
   if(accepted.length){
@@ -229,11 +266,11 @@ async function generateRound(){
     $('total').textContent = state.items.length;
     let msg = `Added ${accepted.length} new compliments.`;
     if(tooLong) msg += ` ${tooLong} over ${p.limit} characters were discarded.`;
-    if(accepted.length<BATCH_TOTAL) msg += ` Press Continue to top up.`;
+    if(accepted.length<total) msg += limitHit ? ` The model's limit was reached after ${accepted.length}/${total}. Wait a minute or pick another model above, then press Continue.` : ` Press Continue to top up.`;
     if(errors.length) msg += ` Some requests failed: ${errors[0]}`;
     setStatus(msg, !errors.length);
   } else {
-    setStatus('Nothing was generated. '+(errors[0]||'Try again.'));
+    setStatus('Nothing was generated. '+(errors[0]||'Try again.')+(limitHit?' Wait a minute or pick another model above, then press Continue.':''));
   }
   setBusy(false);
   return accepted.length>0;
@@ -272,6 +309,8 @@ $('goBtn').onclick = async ()=>{
   const p = {
     keywords:$('keywords').value.split(',').map(s=>s.trim()).filter(Boolean),
     event:$('event').value.trim(),
+    perRound:Math.min(500,Math.max(1,parseInt($('perRound').value,10)||100)),
+    model:$('model').value.trim()||'gemini-3.8-flash',
     tags:$('tags').value.trim(),
     tagMode:$('tagMode').value,
     limit:Math.max(40,parseInt($('limit').value,10)||190),
@@ -280,21 +319,29 @@ $('goBtn').onclick = async ()=>{
   };
   const missing=[];
   if(!p.keywords.length) missing.push('keywords');
-  if(!p.event) missing.push('event name');
   if(missing.length){ e1.textContent='Please fill in: '+missing.join(', ')+'.'; e1.classList.remove('hidden'); return; }
-  ['apikey','idol','keywords','event','tags','limit'].forEach(id=>store.set('tcg_'+id,$(id).value));
+  ['apikey','idol','keywords','event','tags','limit','perRound','model'].forEach(id=>store.set('tcg_'+id,$(id).value));
   store.set('tcg_tagMode',$('tagMode').value);
+  $('perRoundBar').value=p.perRound; $('modelBar').value=p.model;
 
   // reset session
   state.params=p; state.items=[]; state.batches=[]; state.seen=new Set();
   $('list').innerHTML=''; $('total').textContent='0';
-  $('eventLabel').textContent='for '+p.event; $('tagLabel').textContent=(p.tags||'')+' · max '+p.limit+' characters'+(p.tagMode==='append'&&p.tags?' + hashtags':'');
+  $('eventLabel').textContent=p.event?'for '+p.event:''; $('tagLabel').textContent=(p.tags||'')+' · max '+p.limit+' characters'+(p.tagMode==='append'&&p.tags?' + hashtags':'');
   $('pageInput').classList.add('hidden'); $('pageResults').classList.remove('hidden');
   window.scrollTo(0,0);
   await generateRound();
 };
 
-$('contBtn').onclick = ()=>generateRound();
+$('contBtn').onclick = ()=>{
+  const p = state.params;
+  p.perRound = Math.min(500,Math.max(1,parseInt($('perRoundBar').value,10)||p.perRound));
+  p.model = $('modelBar').value.trim() || p.model;
+  $('perRoundBar').value = p.perRound; $('modelBar').value = p.model;
+  store.set('tcg_perRound',p.perRound); store.set('tcg_model',p.model);
+  $('perRound').value = p.perRound; $('model').value = p.model;
+  return generateRound();
+};
 
 $('copyBtn').onclick = async ()=>{
   if(!state.items.length) return setStatus('Nothing to copy yet.');
