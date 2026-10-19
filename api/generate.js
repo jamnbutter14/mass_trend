@@ -43,10 +43,10 @@ function buildPrompt(b) {
   const angle = str(b.angle, 120);
   const avoid = (Array.isArray(b.avoid) ? b.avoid : []).slice(0, 200).map(a => str(a, 80));
   const incTags = !!b.incTags;
-  if (!keywords.length || !event) return null;
+  if (!keywords.length) return null;
 
   const kwText = keywords.map(k => `"${k}"`).join(', ');
-  let t = `Create ${count} compliments for ${idol}, each under ${limit} characters (counting spaces, emojis and punctuation), all have these ${keywords.length} keywords [${kwText}] at [${event}]. Don't count/add a No. at the beginning.`;
+  let t = `Create ${count} compliments for ${idol}, each under ${limit} characters (counting spaces, emojis and punctuation), all have these ${keywords.length} keywords [${kwText}]${event ? ` at [${event}]` : ''}. Don't count/add a No. at the beginning.`;
   t += `\n\nRules:\n- HARD LIMIT: every compliment must be ${limit} characters or fewer in total. Keep them short and punchy.\n- Every compliment must contain ALL of the keywords above, worded naturally.\n- Write each as a standalone fan comment.\n- Make every compliment clearly different in structure, opening, tone and detail. Never start two with the same words.\n- Suggested flavour for this set: ${angle}.`;
   if (tags && incTags) t += `\n- Today's tagline and hashtags is [${tags}]. Include them in every compliment, and count them toward the ${limit}-character limit.`;
   else if (tags) t += `\n- Today's tagline is [${tags}] for context only. Do NOT include any hashtags or the tagline text in the compliments.`;
@@ -83,10 +83,11 @@ module.exports = async (req, res) => {
   if (!body || typeof body !== 'object') return res.status(400).json({ error: 'Bad request.' });
 
   const prompt = buildPrompt(body);
-  if (!prompt) return res.status(400).json({ error: 'Keywords and event name are required.' });
+  if (!prompt) return res.status(400).json({ error: 'Please enter at least one keyword.' });
 
   dayCount++;
-  const model = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+  const wanted = typeof body.model === 'string' ? body.model.trim() : '';
+  const model = /^gemini-[a-z0-9][a-z0-9.\-]{1,50}$/i.test(wanted) ? wanted : (process.env.GEMINI_MODEL || 'gemini-3.8-flash');
   try {
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST',
@@ -102,6 +103,7 @@ module.exports = async (req, res) => {
       })
     });
     const data = await r.json().catch(() => ({}));
+    if (r.status === 429) return res.status(429).json({ error: `Rate limit reached for ${model}. Wait a minute or choose another model.` });
     if (!r.ok) return res.status(502).json({ error: (data.error && data.error.message) || ('Gemini error ' + r.status) });
     const parts = (((data.candidates || [])[0] || {}).content || {}).parts;
     if (!parts) return res.status(502).json({ error: 'Empty response from Gemini (it may have been blocked).' });
