@@ -119,6 +119,13 @@ summary{cursor:pointer;font-weight:700}
       </div>
       <div class="row">
         <div>
+          <label for="directPct">Spoken directly to him (%)</label>
+          <input id="directPct" type="number" min="0" max="100" value="30">
+          <div class="hint">The rest talk about him in the third person.</div>
+        </div>
+      </div>
+      <div class="row">
+        <div>
           <label for="idol">Idol name</label>
           <input id="idol" type="text" value="James">
         </div>
@@ -164,7 +171,7 @@ const store = {
 };
 
 // restore saved fields
-['apikey','idol','keywords','event','tags','limit','perRound','model'].forEach(id=>{
+['apikey','idol','keywords','event','tags','limit','perRound','model','directPct'].forEach(id=>{
   const v = store.get('tcg_'+id); if(v) $(id).value = v;
 });
 if(store.get('tcg_tagMode')) $('tagMode').value = store.get('tcg_tagMode');
@@ -185,6 +192,13 @@ function setBusy(b){
   $('progWrap').classList.toggle('hidden',!b);
 }
 
+const ANGLES_GENERAL = [
+  'heartfelt and emotional','hype, energetic and excited','poetic and admiring',
+  'proud-fan, supportive and grateful','witty, playful and affectionate','detailed praise about talent and hard work',
+  'warm, sincere and personal','short punchy lines','thankful and inspired','dreamy and romantic admiration',
+  'admiring personality and kindness','encouraging and uplifting','fun and cheeky','bold, confident fan energy'
+];
+const ANGLES_EVENT_ONLY = ['celebratory, as if watching live','storytelling about the moment'];
 const ANGLES = [
   'heartfelt and emotional','hype, energetic and excited','poetic and admiring',
   'proud-fan, supportive and grateful','witty, playful and affectionate',
@@ -199,7 +213,7 @@ async function callApi(p, count, avoid, angle){
     headers:{'Content-Type':'application/json','x-access-code':p.code},
     body:JSON.stringify({
       keywords:p.keywords, event:p.event, tags:p.tags, incTags:p.tagMode==='inside', model:p.model,
-      limit:p.limit, idol:p.idol, count, avoid, angle
+      limit:p.limit, idol:p.idol, directPct:p.directPct, count, avoid, angle
     })
   });
   const data = await res.json().catch(()=>({}));
@@ -229,14 +243,15 @@ async function generateRound(){
     const extra = passes===1 ? 0.25 : 0.5;                 // ask for extras to cover rejects
     const sizes = [];
     for(let r=need; r>0; r-=REQ_SIZE) sizes.push(Math.min(REQ_SIZE, r));
-    const angleStart = Math.floor(Math.random()*ANGLES.length);
+    const AL = p.event ? ANGLES_GENERAL.concat(ANGLES_EVENT_ONLY) : ANGLES_GENERAL;
+    const angleStart = Math.floor(Math.random()*AL.length);
     const localAvoid = avoid.concat(accepted.map(t=>t.split(/\s+/).slice(0,7).join(' ')));
     let fresh = [], done = 0;
 
     for(let w=0; w<sizes.length && !limitHit; w+=WAVE){
       await Promise.all(sizes.slice(w,w+WAVE).map(async (sz,k)=>{
         const i = w+k;
-        const angle = ANGLES[(angleStart+i*2)%ANGLES.length]+' / '+ANGLES[(angleStart+i*2+1)%ANGLES.length];
+        const angle = AL[(angleStart+i*2)%AL.length]+' / '+AL[(angleStart+i*2+1)%AL.length];
         try{ fresh.push(...await callApi(p, sz+Math.ceil(sz*extra), localAvoid, angle)); }
         catch(e){
           errors.push(e.message);
@@ -309,6 +324,7 @@ $('goBtn').onclick = async ()=>{
   const p = {
     keywords:$('keywords').value.split(',').map(s=>s.trim()).filter(Boolean),
     event:$('event').value.trim(),
+    directPct:(()=>{const v=parseInt($('directPct').value,10);return Number.isFinite(v)?Math.min(100,Math.max(0,v)):30;})(),
     perRound:Math.min(500,Math.max(1,parseInt($('perRound').value,10)||100)),
     model:$('model').value.trim()||'gemini-3.8-flash',
     tags:$('tags').value.trim(),
@@ -320,7 +336,7 @@ $('goBtn').onclick = async ()=>{
   const missing=[];
   if(!p.keywords.length) missing.push('keywords');
   if(missing.length){ e1.textContent='Please fill in: '+missing.join(', ')+'.'; e1.classList.remove('hidden'); return; }
-  ['apikey','idol','keywords','event','tags','limit','perRound','model'].forEach(id=>store.set('tcg_'+id,$(id).value));
+  ['apikey','idol','keywords','event','tags','limit','perRound','model','directPct'].forEach(id=>store.set('tcg_'+id,$(id).value));
   store.set('tcg_tagMode',$('tagMode').value);
   $('perRoundBar').value=p.perRound; $('modelBar').value=p.model;
 
